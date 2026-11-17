@@ -1,10 +1,9 @@
 // Launch Radar — app.js: the router and the wiring that boots the page.
 // Two address systems, one state. Query parameters (?view=detail&slug=…,
 // ?cat=Lending, ?pin=…, ?cmp=…, ?tab=…) stage the page on first load — the
-// entry's screenshots are captured that way — then fold into the hash. The
-// hash is the live address: #/board, #/detail/<slug>?tab=…, #/market,
-// #/model; on the board, filters, sort, pins and compare picks ride along,
-// so any state reachable by clicking can be linked and reloaded as-is.
+// screenshots are captured that way — then fold into the hash, the live
+// address: #/board, #/detail/<slug>?tab=…, #/market, #/model, with the
+// board's filters, sort, pins and compare picks riding along.
 
 function show(view) {
   state.view = view;
@@ -56,8 +55,7 @@ function applyHash() {
   else { applyBoardParams(p); renderBoard(); renderTray(); show('board'); }
 }
 
-/* First load: query parameters win (they stage the screenshots), then the
-   hash takes over as the live address. */
+/* First load: query parameters win (they stage the screenshots). */
 function applyParams() {
   const q = new URLSearchParams(location.search);
   if ([...q.keys()].length) {
@@ -71,37 +69,57 @@ function applyParams() {
 }
 
 function renderModel() {
-  const R = LR.R;
-  for (const el of document.querySelectorAll('[data-c]')) el.textContent = R.constants[el.dataset.c];
+  const R = LR.R, F = R.fit, V = R.validation;
+  $('#fit-a').textContent = F.intercept.toFixed(2);
+  $('#fit-b').textContent = F.slope.toFixed(3);
+  $('#fit-n').textContent = F.n;
+  $('#fit-traded').textContent = F.traded;
+  $('#fit-cex').textContent = F.dropped_cex;
+  $('#fit-fam').textContent = F.dropped_family;
+  $('#net-community').textContent = (R.netting.community_pct * 100).toFixed(0);
+  $('#net-capture').textContent = (R.netting.capture_pct * 100).toFixed(1);
+  $('#net-farm').textContent = R.netting.farm_max_pct;
+  $('#net-thin').textContent = R.netting.thin_max_pct;
+  const counts = { FARM: 0, THIN: 0, SKIP: 0 };
+  for (const r of R.rows) counts[r.verdict]++;
+  $('#netting-line').textContent = `On this board that nets out at ${counts.FARM} FARM, ${counts.THIN} THIN and ${counts.SKIP} SKIP${counts.FARM === 0 ? ' — no row clears the FARM bar at these assumptions, and the bar is stated, not fitted' : ''}.`;
+  const miss = (x) => `×${x.toFixed(2)}`;
+  $('#validation-body').innerHTML = [
+    ['Flat 0.25× TVL — the starter\u2019s constant', V.loo.flat, V.split.flat],
+    ['Category median — comps-1 (rounds 1\u20132)', V.loo.comps1, V.split.comps1],
+    ['Size curve — comps-2, shipped', V.loo.comps2, V.split.comps2],
+  ].map(([n, l, s]) => `<tr style="cursor:default"><td>${n}</td><td class="num">${miss(l)}</td><td class="num">${miss(s)}</td></tr>`).join('');
+  const termLabel = { momentum: 'Momentum (7-day TVL change)', maturity: 'Maturity (listing age)', reach: 'Reach (chain count)', category: 'Category intercept' };
+  $('#terms-body').innerHTML = V.terms.map((t) => `<tr style="cursor:default"><td>${termLabel[t.name] ?? t.name}</td><td class="num">${miss(t.loo_with)}</td><td class="num">${miss(t.split_with)}</td><td>${t.kept ? 'KEPT' : 'dropped'}</td></tr>`).join('');
   const k = $('#s-k'), g = $('#s-g'), a = $('#s-a');
-  k.value = R.constants.shrink_k; g.value = 1; a.value = R.constants.age_range;
+  k.value = F.slope; g.value = 0; a.value = 0;
   const sync = () => {
-    $('#s-k-v').textContent = `K = ${k.value}`;
+    $('#s-k-v').textContent = `b = ${Number(k.value).toFixed(2)}`;
     $('#s-g-v').textContent = `× ${Number(g.value).toFixed(1)}`;
-    $('#s-a-v').textContent = `range ${Number(a.value).toFixed(2)}`;
-    const off = Number(k.value) !== R.constants.shrink_k || Number(g.value) !== 1 || Number(a.value) !== R.constants.age_range;
-    state.sandbox = off ? { k: Number(k.value), g: Number(g.value), a: Number(a.value) } : null;
+    $('#s-a-v').textContent = `× ${Number(a.value).toFixed(2)}`;
+    const off = Math.abs(Number(k.value) - F.slope) > 0.006 || Number(g.value) !== 0 || Number(a.value) !== 0;
+    state.sandbox = off ? { b: Number(k.value), g: Number(g.value), a: Number(a.value) } : null;
     const top = R.rows.map((r) => ({ r, p: LR.priced(r, state.sandbox) })).sort((x, y) => y.p.implied - x.p.implied).slice(0, 5);
     $('#sandbox-top').innerHTML = '<div><span>SANDBOX TOP 5</span><span></span></div>' +
       top.map(({ r, p }, i) => `<div><span>${i + 1}. ${esc(r.name)}</span><b>${money(p.implied)}</b></div>`).join('');
     renderBoard();
   };
   for (const el of [k, g, a]) el.addEventListener('input', sync);
-  $('#s-reset').addEventListener('click', () => { k.value = R.constants.shrink_k; g.value = 1; a.value = R.constants.age_range; sync(); });
+  $('#s-reset').addEventListener('click', () => { k.value = F.slope; g.value = 0; a.value = 0; sync(); });
   sync();
 }
 
 /* Back to the shipped model, from the board's sandbox note too. */
 function resetSandbox() {
-  $('#s-k').value = LR.R.constants.shrink_k; $('#s-g').value = 1; $('#s-a').value = LR.R.constants.age_range;
+  $('#s-k').value = LR.R.fit.slope; $('#s-g').value = 0; $('#s-a').value = 0;
   $('#s-k').dispatchEvent(new Event('input'));
 }
 
 function renderFoot() {
   const R = LR.R;
   $('#foot-line').innerHTML =
-    `Source: ${esc(R.source)}. The board prices ${R.board_size} pre-token protocols (${R.early_size} of them early finds below the house's $${(R.floor_usd / 1e6).toFixed(0)}M floor) ` +
-    `against ${R.live_peers} live peers whose tokens already trade. Model ${esc(R.model_version)}, stated in full under “The model, open”. ` +
+    `Source: ${esc(R.source)}. The board ranks ${R.board_size} of the snapshot's ${R.pre_token_size} pre-token protocols (${R.early_size} of them early finds below the house's $${(R.floor_usd / 1e6).toFixed(0)}M floor; the rest of the pre-token set is centralised exchanges and versioned pools) ` +
+    `priced by one curve fitted on ${R.fit.n} cleaned traded protocols of the ${R.live_peers} whose tokens already trade. Model ${esc(R.model_version)}, stated in full under “The model, open”. ` +
     `Built for make.fun's “Build the best token launch radar” bounty.`;
 }
 
@@ -115,4 +133,3 @@ renderModel();
 for (const b of document.querySelectorAll('#tabs button[data-view]')) b.addEventListener('click', () => show(b.dataset.view));
 window.addEventListener('hashchange', () => { if (!hashGuard) applyHash(); });
 applyParams();
-drawScope();

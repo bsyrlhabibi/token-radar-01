@@ -9,7 +9,6 @@
 </head>
 <body>
 <header class="masthead">
-  <div class="scope" aria-hidden="true"><canvas id="sweep" width="132" height="132"></canvas></div>
   <div class="mast-text">
     <p class="kicker">DEFILLAMA SNAPSHOT · <span id="as-of">—</span> · MODEL <span id="model-version">—</span></p>
     <h1>LAUNCH<span class="thin">RADAR</span></h1>
@@ -24,7 +23,7 @@
   <button data-view="board" class="on">▦ The board</button>
   <button data-view="market">◈ The market's evidence</button>
   <button data-view="model">⚙ The model, open</button>
-  <button id="palette-open" class="palette-btn" title="Jump to a protocol, view or action">⌘ Command <span class="kbd">Ctrl K</span></button>
+  <button id="palette-open" class="palette-btn">⌘ Command <span class="kbd">Ctrl K</span></button>
 </nav>
 
 <main>
@@ -44,10 +43,11 @@
         <option value="desc">High → low</option>
         <option value="asc">Low → high</option>
       </select></label>
-      <button id="csv-btn" class="toolbtn" title="Download the rows now on the board, as CSV">⇩ CSV</button>
-      <button id="pins-clear" class="toolbtn" title="Unpin every protocol" hidden>Unpin all</button>
+      <button id="csv-btn" class="toolbtn">⇩ CSV</button>
+      <button id="pins-clear" class="toolbtn" hidden>Unpin all</button>
     </div>
     <div class="chipsrow" id="chips"></div>
+    <p class="splitline" id="split-line"></p>
     <p class="sandbox-note" id="sandbox-note" hidden>SANDBOX RANKING — the sliders in <b>The model, open</b> are re-pricing this board. <button id="sandbox-reset">Back to the shipped model</button></p>
     <div class="tablewrap">
       <table id="board">
@@ -56,7 +56,7 @@
       </table>
     </div>
     <p class="board-foot" id="board-foot"></p>
-    <p class="shortcuts">KEYS — <span class="kbd">Ctrl K</span> or <span class="kbd">/</span> command palette · <span class="kbd">B</span> board · <span class="kbd">M</span> market evidence · <span class="kbd">P</span> the model · <span class="kbd">Esc</span> closes overlays</p>
+    <p class="shortcuts">KEYS — <span class="kbd">Ctrl K</span> or <span class="kbd">/</span> palette · <span class="kbd">B</span> board · <span class="kbd">M</span> market · <span class="kbd">P</span> model · <span class="kbd">Esc</span> closes overlays</p>
   </section>
 
   <section id="view-detail" hidden></section>
@@ -66,10 +66,11 @@
       <div class="panel">
         <h2>What a dollar of TVL is worth, by line of work</h2>
         <p class="lede">Read from the snapshot itself: every protocol whose token already trades, grouped by category.
-        The median is the market's honest middle; the used multiple shrinks it toward the global median in log
-        space, by how many peers stand behind it.</p>
+        The median is the market's honest middle — evidence, not the price. This board used to price from this
+        table (comps-1, rounds 1–2); comps-2 fits one size curve across the traded set instead, and the
+        out-of-sample test that chose between them is under The model, open.</p>
         <table id="comps">
-          <thead><tr><th>Category</th><th class="num">Live peers</th><th class="num">Median ×TVL</th><th class="num">Used ×TVL</th><th></th></tr></thead>
+          <thead><tr><th>Category</th><th class="num">Live peers</th><th class="num">Median ×TVL</th><th></th></tr></thead>
           <tbody id="comps-body"></tbody>
         </table>
       </div>
@@ -89,37 +90,55 @@
     <div class="cols">
       <div class="panel">
         <h2>The model, stated whole</h2>
-        <p class="formula">implied = TVL × <b>category multiple</b> × <b>momentum</b> × <b>maturity</b> × <b>reach</b></p>
+        <p class="formula">implied = exp(<b>a</b> + <b>b</b> × ln TVL) — one fitted size curve, <b>comps-2</b></p>
         <ul class="model-list">
-          <li><b>Category multiple.</b> The median market-cap/TVL of the category's live peers, blended toward the
-          global median in log space with weight n/(n+K), K = <span data-c="shrink_k"></span>, clamped to
-          [<span data-c="multiple_min"></span>, <span data-c="multiple_max"></span>]. No peers: the global median stands in.</li>
-          <li><b>Momentum.</b> 7-day TVL change, clamped to ±<span data-c="growth_clamp_pct"></span>%. Gains count at
-          <span data-c="growth_up_weight"></span> weight, losses at <span data-c="growth_down_weight"></span> — money
-          leaving is harder to argue with than money arriving.</li>
-          <li><b>Maturity.</b> <span data-c="age_floor"></span> + <span data-c="age_range"></span> × age in days /
-          <span data-c="age_cap_days"></span>. Time on DefiLlama is survival evidence; an unknown age reads as
-          <span data-c="unknown_age_days"></span> days.</li>
-          <li><b>Reach.</b> +<span data-c="chain_step"></span> per chain beyond the first, up to
-          <span data-c="chain_max_extra"></span> extra. Distribution is a launch asset.</li>
-          <li><b>Selection.</b> One rule for the whole board: no token recorded, no version marker in the name, not a
-          wrapped, staked or bridged product, not an exchange front. The house watchlist is covered in full, then
-          the board keeps going to the snapshot's $5M edge.</li>
+          <li><b>The fit.</b> Least squares of ln market cap on ln TVL across the snapshot's traded protocols,
+          cleaned three ways: exchange (CEX) listings dropped (<span id="fit-cex"></span> of <span id="fit-traded"></span>
+          traded), one row kept per ticker family (<span id="fit-fam"></span> duplicates dropped), nothing else
+          touched. What remains: n = <span id="fit-n"></span>, intercept a = <span id="fit-a"></span>, slope
+          b = <span id="fit-b"></span>.</li>
+          <li><b>Bands.</b> The fit set is resampled with replacement and refitted 200 times — seed fixed, so
+          the board is reproducible to the dollar. Each row's band is the p10–p90 of its 200 refit prices, its
+          rank range the p10–p90 of its refit ranks. A pure size curve ranks by size, so the refits move the
+          values, not the order.</li>
+          <li><b>Selection.</b> The competition's own rule, whole: no token recorded in the snapshot (no market
+          cap, no ticker, no listing id) and no version marker in the name. The one exclusion kept is CEX — a
+          centralised exchange is a company, not a protocol launch. Bridges, staking, restaking: swept in full.</li>
+          <li><b>Netting.</b> Every farm plan ends in a verdict on stated assumptions: at a launch,
+          <span id="net-community"></span>% of the protocol's implied value at its band low goes to the
+          community, and one wallet captures <span id="net-capture"></span>% of that pool. A plan pays for
+          itself if the launch chance beats its all-in cost divided by that reward — FARM at or under
+          <span id="net-farm"></span>%, THIN at or under <span id="net-thin"></span>%, otherwise SKIP.
+          <span id="netting-line"></span></li>
         </ul>
-        <p class="lede">No protocol is named anywhere in the model: the same function prices Steakhouse and the
-        smallest farm on the board, and every farm plan is written by the same playbook logic from the protocol's
-        own category, chain, size and age.</p>
+        <h3 class="sect">Tested out of sample</h3>
+        <p class="lede">Typical miss — the median pricing error, as a multiple — measured two ways on the
+        cleaned fit set: leave-one-out (each protocol priced by a model fitted without it) and a time split
+        (the older half by listing date fits; the newer half is priced blind). Lower is better; every model
+        here is wrong by a lot, and the table says by how much.</p>
+        <table><thead><tr><th>Model</th><th class="num">Leave-one-out</th><th class="num">Time split</th></tr></thead>
+        <tbody id="validation-body"></tbody></table>
+        <h3 class="sect">Terms on trial</h3>
+        <p class="lede">Four extra terms were fitted and put through the same two tests. A term ships only if
+        it improves leave-one-out without worsening the time split. None did — the shipped model is the pure
+        curve; the sandbox switches two of them back on to show what they would do.</p>
+        <table><thead><tr><th>Term</th><th class="num">LOO with it</th><th class="num">Split with it</th><th>Verdict</th></tr></thead>
+        <tbody id="terms-body"></tbody></table>
+        <p class="lede">No protocol is named anywhere in the model: the same line prices WBTC and the smallest
+        farm on the board, and every farm plan is written by the same playbook logic from the protocol's own
+        category, chain, size and age.</p>
       </div>
       <div class="panel">
         <h2>The sandbox — break it yourself</h2>
-        <p class="lede">Move a slider and the board re-prices and re-ranks in place — see which conclusions are
-        robust and which hang on one constant.</p>
-        <label class="slider">Shrinkage K — how hard thin categories hug the global median
-          <input id="s-k" type="range" min="0" max="40" step="1"><span id="s-k-v"></span></label>
-        <label class="slider">Momentum weight — how much a week's TVL move is worth
+        <p class="lede">Move a slider and the board re-prices and re-ranks in place. The slope rotates the
+        fitted line around its mean point; the two weights revive terms the test rejected, at the strength
+        you choose — see which conclusions are robust and which hang on one constant.</p>
+        <label class="slider">Curve slope b — how steeply value grows with size
+          <input id="s-k" type="range" min="0.3" max="0.7" step="0.01"><span id="s-k-v"></span></label>
+        <label class="slider">Momentum weight — a dropped term, off at its shipped value of 0
           <input id="s-g" type="range" min="0" max="2" step="0.1"><span id="s-g-v"></span></label>
-        <label class="slider">Maturity range — how much survival is worth
-          <input id="s-a" type="range" min="0" max="0.6" step="0.05"><span id="s-a-v"></span></label>
+        <label class="slider">Maturity weight — also dropped, also off at 0
+          <input id="s-a" type="range" min="0" max="1" step="0.05"><span id="s-a-v"></span></label>
         <button id="s-reset">Reset to the shipped model</button>
         <div id="sandbox-top"></div>
       </div>
@@ -130,9 +149,9 @@
 <footer>
   <p id="foot-line"></p>
   <p class="fine">Implied values are a model's reading of one frozen snapshot, not a promise about any launch.
-  Farm plans are starting points written from public data; a protocol's own page is the only authority on its terms.
+  Farm plans are starting points from public data; a protocol's own page is the only authority on its terms.
   Every view has a deep link — <span class="kbd">#/board</span>, <span class="kbd">#/detail/&lt;slug&gt;</span>,
-  <span class="kbd">#/market</span>, <span class="kbd">#/model</span> — and the board's state rides along in it.</p>
+  <span class="kbd">#/market</span>, <span class="kbd">#/model</span> — and the board's state rides along.</p>
 </footer>
 
 <div id="compare-tray" hidden></div>
@@ -152,7 +171,6 @@
 <script src="./compare.js"></script>
 <script src="./palette.js"></script>
 <script src="./views.js"></script>
-<script src="./visuals.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>

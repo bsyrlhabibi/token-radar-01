@@ -1,49 +1,51 @@
-// Launch Radar — data.js: the dataset and the arithmetic every other file uses.
-// main.ts writes window.RADAR (../data.js) beside this page: the whole sealed
-// snapshot, distilled. This file turns it into working structures — a Map from
-// slug to row (one lookup per protocol), the category-comps index, the shipped
-// pricing and the sandbox's re-pricing of it, and the farm-plan playbook the
-// detail and compare views tell from. No other file touches window.RADAR.
+// Launch Radar — data.js: the dataset and the arithmetic every other file
+// uses. main.ts writes window.RADAR (../data.js) beside this page: the whole
+// sealed snapshot, distilled — a Map from slug to row, the category-comps
+// index (evidence, not the price), the shipped + sandbox pricing, and the
+// farm plan the detail and compare views tell. No other file touches it.
 
 const LR = (() => {
   const R = window.RADAR;
   const bySlug = new Map(R.rows.map((r) => [r.slug, r]));
   const compByCat = new Map(R.categories.map((c) => [c.category, c]));
 
-  /* The shipped model's per-row value, or the sandbox's re-pricing of it
-     (sandbox is {k, g, a} while the sliders are off their shipped values).
-     The shipped path returns the snapshot's own numbers, untouched. */
+  function growthMultOf(pct) {
+    if (pct === null || pct === undefined) return 1;
+    const c = Math.max(-R.constants.growth_clamp_pct, Math.min(R.constants.growth_clamp_pct, pct));
+    return 1 + (c / 100) * (c >= 0 ? R.constants.growth_up_weight : R.constants.growth_down_weight);
+  }
+  function ageMultOf(days) {
+    const age = days === null || days === undefined ? R.constants.unknown_age_days : days;
+    return R.constants.age_floor + R.constants.age_range * (Math.min(Math.max(age, 0), R.constants.age_cap_days) / R.constants.age_cap_days);
+  }
+
+  /* The shipped model's per-row value, or the sandbox's re-pricing of it.
+     Sandbox {b, g, a}: the curve's slope, re-anchored at the fit's mean
+     point, and weights for the two terms the harness dropped — at 0 (their
+     shipped value) the board is the pure curve, numbers untouched. */
   function priced(row, sandbox) {
-    if (!sandbox) return { implied: row.implied_value_usd, multiple: row.parts.base_multiple };
-    const comp = row.category ? compByCat.get(row.category) : undefined;
-    let multiple = R.global_multiple;
-    if (comp) {
-      const blended = Math.exp((comp.peers * Math.log(comp.median_multiple) + sandbox.k * Math.log(R.global_multiple)) / (comp.peers + sandbox.k));
-      multiple = Math.min(R.constants.multiple_max, Math.max(R.constants.multiple_min, blended));
-    }
-    const gp = row.parts.growth_pct;
-    const w = (gp >= 0 ? R.constants.growth_up_weight : R.constants.growth_down_weight) * sandbox.g;
-    const growthMult = 1 + (gp / 100) * w;
-    const age = row.age_days ?? R.constants.unknown_age_days;
-    const ageMult = (1 - sandbox.a) + (Math.min(Math.max(age, 0), R.constants.age_cap_days) / R.constants.age_cap_days) * sandbox.a;
-    const implied = Math.max(1, Math.round(row.tvl_usd * multiple * growthMult * ageMult * row.parts.chain_multiplier));
-    return { implied, multiple };
+    if (!sandbox) return { implied: row.implied_value_usd, multiple: row.parts.effective_multiple };
+    const F = R.fit;
+    const base = Math.exp(F.mean_log_mcap - sandbox.b * F.mean_log_tvl + sandbox.b * Math.log(Math.max(1, row.tvl_usd)));
+    const implied = Math.max(1, Math.round(base
+      * (1 + (growthMultOf(row.parts.growth_pct) - 1) * sandbox.g)
+      * (1 + (ageMultOf(row.age_days) - 1) * sandbox.a)));
+    return { implied, multiple: implied / Math.max(1, row.tvl_usd) };
   }
 
-  /* The waterfall a valuation is built from: TVL, then each multiplier in turn. */
+  /* The waterfall: TVL, the curve's price, the bootstrap band around it. */
   function waterfall(row) {
-    const p = row.parts;
-    const steps = [['TVL today', row.tvl_usd]];
-    let run = row.tvl_usd;
-    for (const [name, m] of [['category multiple', p.base_multiple], ['momentum', p.growth_multiplier], ['maturity', p.age_multiplier], ['reach', p.chain_multiplier]]) {
-      run *= m; steps.push([`× ${name} ${m.toFixed(3)}`, run]);
-    }
-    return steps;
+    return [
+      ['TVL today', row.tvl_usd],
+      [`curve price — exp(${R.fit.intercept.toFixed(2)} + ${R.fit.slope.toFixed(2)} × ln TVL)`, row.implied_value_usd],
+      ['band low — p10 of 200 refits', row.band_low_usd],
+      ['band high — p90 of 200 refits', row.band_high_usd],
+    ];
   }
 
-  /* ---- the farm-plan playbook: the page's own telling of the model's logic.
-     Same words as the shipped board's plans: category decides the position,
-     first chain the gas, TVL the capital tier, age the hold. ---- */
+  /* ---- the farm plan: the board's own steps, carried in the page data.
+     The playbook lives in lib/model.ts; here the shipped step strings are
+     only split back into text, cost and time for the pane rendering them. */
   function gasOf(chain) {
     if (chain === 'Solana') return 'a few cents of SOL in fees';
     if (chain === 'Bitcoin' || chain === 'Lightning Network') return 'one ordinary on-chain fee';
@@ -63,45 +65,15 @@ const LR = (() => {
     if (age < 365) return 45;
     return 30;
   }
-  function bookOf(row, chain, capital) {
-    const c = (row.category ?? '').toLowerCase();
-    const n = row.name;
-    if (c.includes('lend') || c.includes('cdp') || c.includes('collateral'))
-      return [`Supply $${capital} of USDC to ${n} on ${chain}, then borrow a small amount against it and repay, so the wallet shows both sides of the market`, 'rebalance the position once a week and keep the health factor comfortably above liquidation', 'a borrow rate spike or an oracle warning on the position\u2019s market page'];
-    if (c.includes('dex') || c.includes('leveraged'))
-      return [`Add $${capital} of liquidity to ${n}'s deepest pool on ${chain} and route two or three real swaps through it`, 'swap a small amount through the protocol once a week and re-centre the liquidity if the price drifts', 'impermanent loss if the pool\u2019s pair runs apart; the plan\u2019s capital is the most it can cost'];
-    if (c.includes('perpetual') || c.includes('derivative') || c.includes('options'))
-      return [`Deposit $${capital} of USDC as margin on ${n} and open one small hedged position, spot against perp, so the account trades without directional risk`, 'roll or resize the hedge once a week so the account keeps a live trading history', 'funding flipping against the hedge; keep the position small enough that a bad week is a lesson, not a loss'];
-    if (c.includes('curator') || c.includes('allocator') || c.includes('capital'))
-      return [`Deposit $${capital} into one of ${n}'s flagship vaults on ${chain} and keep the vault shares in the wallet`, 'check the vault\u2019s allocation once a week and move to its successor vault if the curator rotates', 'the vault\u2019s underlying markets; a curator\u2019s risk sits in what the vault lends to, not in the vault itself'];
-    if (c.includes('rwa') || c.includes('treasur') || c.includes('stable'))
-      return [`Mint or deposit $${capital} of ${n}'s yield-bearing asset on ${chain} and hold it untouched`, 'make one small top-up or redemption a week so the holding is active, not dust', 'redemption windows and issuer notices; these assets pay slowly and exit slower'];
-    if (c.includes('payment'))
-      return [`Fund a ${n} wallet or channel with $${capital} and route two real payments through it`, 'send one small payment a week so the account keeps a genuine usage history', 'channel or wallet balances draining in fees; top up little and often'];
-    if (c.includes('yield') || c.includes('farm'))
-      return [`Deposit $${capital} into ${n}'s main vault on ${chain} and keep the receipt token in the wallet`, 'compound or re-deposit the yield once a week rather than selling it', 'the vault\u2019s strategy changing under you; read its page before each compound'];
-    if (c.includes('prediction'))
-      return [`Fund $${capital} on ${n} and take small positions on three liquid markets`, 'trade one market a week and settle positions as they resolve', 'thin markets where the exit price is not the screen price'];
-    return [`Deposit $${capital} of USDC into ${n} on ${chain} and keep the position open`, 'make one qualifying action a week, a deposit, a swap or a vote, so the wallet reads as a user and not a passer-by', 'the protocol\u2019s own announcements page; terms change quietly and positions should follow'];
-  }
   function farmPlan(row) {
-    const chain = row.chains[0] ?? 'its main chain';
-    const capital = capitalOf(row.tvl_usd);
-    const hold = holdOf(row.age_days);
-    const gas = gasOf(chain);
-    const [open, weekly, watch] = bookOf(row, chain, capital);
-    return [
-      ['Start from a fresh wallet funded only with the farming budget, its seed phrase written offline; a launch, if it comes, will look for real users, and a clean wallet is one.', gas, '5 minutes'],
-      [open, `$${capital} of capital plus ${gas}`, '15 minutes to set up'],
-      [`Each week, ${weekly}.`, 'about $2 of fees a week', '10 minutes a week'],
-      [`Hold the position for at least ${hold} days, across more than one weekly snapshot of the protocol's numbers.`, `the $${capital} stays in the position`, `${hold} days`],
-      [`Watch for ${watch}. Check ${row.name}'s own site and official account before acting on any launch or points news, and follow only links published there.`, 'nothing to check, and never pay anyone to claim an airdrop', '10 minutes'],
-      ['Keep a farm log — wallet, dates, amounts, transaction hashes — and unwind when the token launches, when the protocol announces its snapshot, or when its TVL falls by a third from your entry.', 'nothing but the log', '5 minutes'],
-    ];
+    return row.farm_steps.map((s) => {
+      const m = /^(.*) Cost: (.*)\. Time: (.*)\.$/.exec(s);
+      return m ? [m[1], m[2], m[3]] : [s, '', ''];
+    });
   }
-  /* The plan's headline numbers, for compare: capital in, days held. */
+  /* The plan's headline numbers, for compare: capital in, days held, verdict. */
   function planFacts(row) {
-    return { steps: 6, capital: capitalOf(row.tvl_usd), hold: holdOf(row.age_days), gas: gasOf(row.chains[0] ?? '') };
+    return { steps: row.farm_steps.length, capital: capitalOf(row.tvl_usd), hold: holdOf(row.age_days), gas: gasOf(row.chains[0] ?? ''), verdict: row.verdict, cost: row.plan_cost_usd, breakeven: row.breakeven_pct, hours: row.plan_hours };
   }
 
   return { R, bySlug, compByCat, priced, waterfall, farmPlan, planFacts, capitalOf, holdOf, gasOf };

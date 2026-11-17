@@ -1,13 +1,11 @@
 // Launch Radar — board.js: the board itself, and the state it answers to.
-// One state object holds the page's position: view, filters, sort (column +
-// direction — header arrows and dropdowns are two faces of one value), pins,
-// compare picks, the sandbox re-pricing. app.js turns state into the URL
-// hash and back; this file renders it and wires the board's controls.
+// One state object holds the page's position: view, filters, sort (header
+// arrows and dropdowns, two faces of one value), pins, compare, sandbox.
 
 const state = {
   view: 'board', slug: null, tab: 'overview',
   q: '', cat: '', chain: '', size: 0, tier: 'all', sort: 'implied', dir: 'desc',
-  pins: new Set(), cmp: [], sandbox: null, // {k,g,a} while the sliders are off the shipped values
+  pins: new Set(), cmp: [], sandbox: null, // {b,g,a} while the sliders are off the shipped values
 };
 
 const $ = (s) => document.querySelector(s);
@@ -21,6 +19,8 @@ function money(v) {
   return `$${Math.round(v)}`;
 }
 const pct = (v) => (v == null ? '—' : `${v > 0 ? '+' : ''}${Number(v).toFixed(1)}%`);
+/* Under 0.1 a third decimal keeps the × TVL column honest (giants: 0.014×). */
+const fmtMult = (v) => `${v < 0.1 ? v.toFixed(3) : v.toFixed(2)}×`;
 function ageLabel(d) {
   if (d == null) return 'unknown';
   if (d >= 730) return `${(d / 365).toFixed(1)}y`;
@@ -28,7 +28,7 @@ function ageLabel(d) {
   return `${d}d`;
 }
 
-/* The columns in table order; key is the sort the header click and the Sort
+/* The columns in table order; key is the sort header click and the Sort
    dropdown share. Pin and Compare are action columns, not sorts. */
 const COLS = [
   [null, '#', 1], ['name', 'Protocol'], ['category', 'Category'], [null, 'Chains'], ['tvl', 'TVL', 1],
@@ -77,7 +77,7 @@ function momCell(v) {
 function rowHtml(r, i) {
   const pinned = state.pins.has(r.slug), inCmp = state.cmp.includes(r.slug);
   const rank = state.sandbox || state.sort !== 'implied' || state.dir !== 'desc' ? i + 1 : r.rank;
-  return `<tr data-slug="${esc(r.slug)}" class="${rank <= 3 ? 'top' : ''}${pinned ? ' pinned' : ''}"><td class="rank">${rank}</td><td><span class="pname">${esc(r.name)}</span><span class="tier ${r.tier}">${r.tier === 'watchlist' ? 'WATCHLIST' : 'EARLY'}</span><br><span class="pslug">${esc(r.slug)}</span></td><td>${esc(r.category ?? '—')}</td><td><span class="chips">${r.chains.slice(0, 3).map((c) => `<span class="chip">${esc(c)}</span>`).join('')}${r.chains.length > 3 ? `<span class="chip">+${r.chains.length - 3}</span>` : ''}</span></td><td class="num">${money(r.tvl_usd)}</td><td>${momCell(r.change_7d)}</td><td class="num">${ageLabel(r.age_days)}</td><td class="num">${r._p.multiple.toFixed(2)}×</td><td class="num implied">${money(r._p.implied)}</td><td class="act"><button class="pinbtn${pinned ? ' on' : ''}" data-pin="${esc(r.slug)}" title="${pinned ? 'Unpin' : 'Pin'} ${esc(r.name)}">${pinned ? '★' : '☆'}</button></td><td class="act"><button class="cmpbtn${inCmp ? ' on' : ''}" data-cmp="${esc(r.slug)}" title="Compare ${esc(r.name)} side by side">${inCmp ? '✓' : '+'}</button></td></tr>`;
+  return `<tr data-slug="${esc(r.slug)}" class="${rank <= 3 ? 'top' : ''}${pinned ? ' pinned' : ''}"><td class="rank">${rank}</td><td><span class="pname">${esc(r.name)}</span><span class="tier ${r.tier}">${r.tier === 'watchlist' ? 'WATCHLIST' : 'EARLY'}</span><span class="tier v-${r.verdict.toLowerCase()}" title="Netted verdict — $${r.plan_cost_usd} all-in, break-even ${r.breakeven_pct.toFixed(1)}%">${r.verdict}</span><br><span class="pslug">${esc(r.slug)}</span></td><td>${esc(r.category ?? '—')}</td><td><span class="chips">${r.chains.slice(0, 3).map((c) => `<span class="chip">${esc(c)}</span>`).join('')}${r.chains.length > 3 ? `<span class="chip">+${r.chains.length - 3}</span>` : ''}</span></td><td class="num">${money(r.tvl_usd)}</td><td>${momCell(r.change_7d)}</td><td class="num">${ageLabel(r.age_days)}</td><td class="num">${fmtMult(r._p.multiple)}</td><td class="num implied">${money(r._p.implied)}</td><td class="act"><button class="pinbtn${pinned ? ' on' : ''}" data-pin="${esc(r.slug)}" title="${pinned ? 'Unpin' : 'Pin'} ${esc(r.name)}">${pinned ? '★' : '☆'}</button></td><td class="act"><button class="cmpbtn${inCmp ? ' on' : ''}" data-cmp="${esc(r.slug)}" title="Compare ${esc(r.name)} side by side">${inCmp ? '✓' : '+'}</button></td></tr>`;
 }
 
 function renderBoard() {
@@ -88,7 +88,7 @@ function renderBoard() {
   $('#pins-clear').hidden = !state.pins.size;
   let html = '';
   if (!rows.length) {
-    html = `<tr class="emptyrow"><td colspan="${COLS.length}"><div style="text-align:center;padding:30px 16px"><p style="margin:0 0 6px;font-size:16px">No protocol matches those filters.</p><p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">The radar swept all ${LR.R.board_size} rows and found nothing in that corner. Loosen a filter — or clear them all.</p><button class="toolbtn" id="empty-reset">Reset all filters</button></div></td></tr>`;
+    html = `<tr class="emptyrow"><td colspan="${COLS.length}"><div style="text-align:center;padding:30px 16px"><p style="margin:0 0 6px;font-size:16px">No protocol matches those filters.</p><p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">The radar swept all ${LR.R.board_size} rows and found nothing in that corner. Loosen a filter — or clear them all.</p><button class="toolbtn" id="empty-reset">Reset filters</button></div></td></tr>`;
   } else {
     if (pinned.length) html += `<tr class="grouprow"><td colspan="${COLS.length}">★ PINNED — ${pinned.length} protocol${pinned.length === 1 ? '' : 's'} held at the top</td></tr>` + pinned.map((r, i) => rowHtml(r, i)).join('');
     html += rest.map((r, i) => rowHtml(r, pinned.length + i)).join('');
@@ -96,13 +96,13 @@ function renderBoard() {
   $('#board-body').innerHTML = html;
   renderChips(rows.length);
   const top = rows[0];
-  $('#board-foot').textContent = top ? `Strongest signal: ${top.name} — ${money(top.tvl_usd)} of TVL priced at ${top._p.multiple.toFixed(2)}× for an implied ${money(top._p.implied)} launch. Click any row for its valuation waterfall and farm plan; ★ pins it here, + lines it up in a comparison.` : '';
+  $('#board-foot').textContent = top ? `Strongest signal: ${top.name} — ${money(top.tvl_usd)} of TVL priced at ${fmtMult(top._p.multiple)} for an implied ${money(top._p.implied)} launch. Click any row for its valuation waterfall and farm plan; ★ pins it here, + lines it up in a comparison.` : '';
   const er = $('#empty-reset');
   if (er) er.addEventListener('click', resetFilters);
 }
 
-/* Active-filter chips: one per filter now narrowing the board, each with a
-   one-click removal; the line always states the count it leaves. */
+/* Active-filter chips: one per narrowing filter, each removable; the line
+   always states the count it leaves. */
 function renderChips(shown) {
   const chips = [];
   if (state.q) chips.push(['Search', state.q, () => { state.q = ''; $('#f-q').value = ''; }]);
@@ -129,14 +129,13 @@ function resetFilters() {
   setTier('all'); renderBoard(); syncHash();
 }
 
-/* CSV: the board exactly as it stands — filtered, sorted, pinned first —
-   from the same priced rows the table shows. */
+/* CSV: the board exactly as it stands — filtered, sorted, pinned first. */
 function exportCsv() {
   const rows = visibleRows();
   const ordered = [...rows.filter((r) => state.pins.has(r.slug)), ...rows.filter((r) => !state.pins.has(r.slug))];
   const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [['Rank', 'Protocol', 'Slug', 'Category', 'Tier', 'Chains', 'TVL USD', 'Change 7d %', 'Age days', 'Category multiple', 'Momentum x', 'Maturity x', 'Reach x', 'Implied launch value USD', 'Pinned'].join(',')];
-  for (const r of ordered) lines.push([r.rank, r.name, r.slug, r.category ?? '', r.tier, r.chains.join(' + '), r.tvl_usd, r.change_7d ?? '', r.age_days ?? '', r._p.multiple.toFixed(4), r.parts.growth_multiplier, r.parts.age_multiplier, r.parts.chain_multiplier, r._p.implied, state.pins.has(r.slug) ? 'yes' : ''].map(cell).join(','));
+  const lines = [['Rank', 'Protocol', 'Slug', 'Category', 'Tier', 'Chains', 'TVL USD', 'Change 7d %', 'Age days', 'Effective multiple', 'Implied launch value USD', 'Band low USD', 'Band high USD', 'Rank low', 'Rank high', 'Farm verdict', 'Plan cost USD', 'Plan hours', 'Break-even launch chance %', 'Pinned'].join(',')];
+  for (const r of ordered) lines.push([r.rank, r.name, r.slug, r.category ?? '', r.tier, r.chains.join(' + '), r.tvl_usd, r.change_7d ?? '', r.age_days ?? '', r._p.multiple.toFixed(4), r._p.implied, r.band_low_usd, r.band_high_usd, r.rank_low, r.rank_high, r.verdict, r.plan_cost_usd, r.plan_hours, r.breakeven_pct, state.pins.has(r.slug) ? 'yes' : ''].map(cell).join(','));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([lines.join('\n') + '\n'], { type: 'text/csv' }));
   a.download = 'launch-radar-board.csv';
@@ -144,8 +143,8 @@ function exportCsv() {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 
-/* Controls: header clicks sort; the tbody delegates — pin and compare act
-   in place, any other row click opens the detail. */
+/* Controls: header clicks sort; the tbody delegates pin/compare in place,
+   any other row click opens the detail. */
 function initBoard() {
   $('#board-head').innerHTML = COLS.map(([key, label, num]) => key
     ? `<th class="${num ? 'num ' : ''}sortable" data-sort="${key}">${label} <span class="arr"></span></th>`
@@ -177,6 +176,6 @@ function fillFilterOptions() {
   fill('#f-chain', [...new Set(LR.R.rows.flatMap((r) => r.chains))].sort());
   $('#f-size').innerHTML = [[0, 'Any TVL'], [1e9, 'TVL ≥ $1B'], [2.5e8, 'TVL ≥ $250M'], [5e7, 'TVL ≥ $50M'], [1e7, 'TVL ≥ $10M']]
     .map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
-  $('#f-sort').innerHTML = [['implied', 'Implied value'], ['tvl', 'TVL'], ['growth', '7d momentum'], ['age', 'Age'], ['name', 'Protocol A–Z'], ['category', 'Category'], ['multiple', '× TVL multiple']]
+  $('#f-sort').innerHTML = [['implied', 'Implied value'], ['tvl', 'TVL'], ['growth', '7d momentum'], ['age', 'Age'], ['name', 'Protocol A–Z'], ['category', 'Category'], ['multiple', 'Effective × TVL']]
     .map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
 }

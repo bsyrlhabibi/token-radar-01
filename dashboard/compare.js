@@ -1,10 +1,8 @@
 // Launch Radar — compare.js: up to three protocols, side by side.
 // The + on any row (or a detail page's button) adds the protocol to
-// state.cmp; the tray at the bottom shows the picks and opens the panel.
-// Every line is read off the rows themselves — including the verdicts,
-// computed from the selected numbers: highest implied value, strongest
-// momentum, richest multiple, cheapest farm entry, and each pick's share
-// of the compared total implied value, drawn as a bar.
+// state.cmp; the tray shows the picks and opens the panel. Every line is
+// read off the rows themselves — including the verdicts, computed from the
+// selected numbers, and each pick's share of the compared total value.
 
 const CMP_MAX = 3;
 
@@ -44,18 +42,18 @@ function renderCompare() {
       ${line('Board rank', (x) => `#${x.r.rank}`)}${line('Category', (x) => x.r.category ?? '—')}
       ${line('Tier', (x) => (x.r.tier === 'watchlist' ? 'Watchlist' : 'Early find'))}${line('TVL', (x) => money(x.r.tvl_usd))}
       ${line('7-day change', (x) => pct(x.r.change_7d))}${line('Age', (x) => (x.r.age_days === null ? 'unknown' : `${x.r.age_days}d`))}
-      ${line('Chains', (x) => x.r.chains.length)}${line('Category multiple', (x) => `${x.p.multiple.toFixed(3)}×`)}
-      ${line('× momentum', (x) => x.r.parts.growth_multiplier.toFixed(3))}${line('× maturity', (x) => x.r.parts.age_multiplier.toFixed(3))}
-      ${line('× reach', (x) => x.r.parts.chain_multiplier.toFixed(3))}${line('Implied launch value', (x) => money(x.p.implied))}
+      ${line('Chains', (x) => x.r.chains.length)}${line('Effective multiple', (x) => `${x.p.multiple.toFixed(3)}×`)}
+      ${line('Band low (p10)', (x) => money(x.r.band_low_usd))}${line('Band high (p90)', (x) => money(x.r.band_high_usd))}
+      ${line('Rank across refits', (x) => (x.r.rank_low === x.r.rank_high ? `#${x.r.rank_low}` : `#${x.r.rank_low}–#${x.r.rank_high}`))}${line('Implied launch value', (x) => money(x.p.implied))}
       <tr><td class="clab">Share of compared value</td>${xs.map((x) => { const sh = total ? (x.p.implied / total) * 100 : 0; return `<td><span class="mom"><span>${sh.toFixed(1)}%</span><span class="bar" style="width:90px"><i class="up" style="width:${sh}%"></i></span></span></td>`; }).join('')}</tr>
-      ${line('Farm plan', (x) => `${x.plan.steps} steps`)}${line('Farm capital', (x) => `$${x.plan.capital}`)}
-      ${line('Farm hold', (x) => `${x.plan.hold} days`)}${line('Farm gas (first chain)', (x) => x.plan.gas)}
+      ${line('Farm plan', (x) => `${x.plan.steps} steps · ${x.plan.verdict}`)}${line('Plan cost, all-in', (x) => `$${x.plan.cost}`)}
+      ${line('Break-even launch chance', (x) => `${x.plan.breakeven.toFixed(1)}%`)}${line('Farm hold', (x) => `${x.plan.hold} days`)}
     </tbody></table>
     <div class="verdicts">${[
       ['Highest implied value', best((x) => x.p.implied)], ['Strongest 7d momentum', best((x) => x.r.change_7d ?? -Infinity)],
-      ['Richest category multiple', best((x) => x.p.multiple)], ['Cheapest farm entry', xs.reduce((a, b) => (b.plan.capital < a.plan.capital ? b : a))],
+      ['Richest effective multiple', best((x) => x.p.multiple)], ['Cheapest plan, all-in', xs.reduce((a, b) => (b.plan.cost < a.plan.cost ? b : a))],
     ].map(([lab, x]) => `<div class="fact"><span>${lab}</span><b>${esc(x.r.name)}</b></div>`).join('')}</div>
-    <p class="pal-hint">Verdicts are computed from the rows above, on the ${state.sandbox ? 'sandbox' : 'shipped'} pricing. Esc closes.</p></div>`;
+    <p class="pal-hint">Verdicts computed from the rows above, on the ${state.sandbox ? 'sandbox' : 'shipped'} pricing. Esc closes.</p></div>`;
   panel.hidden = false;
   $('#cmp-close').addEventListener('click', () => { panel.hidden = true; });
 }

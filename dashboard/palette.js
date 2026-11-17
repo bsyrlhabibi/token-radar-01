@@ -1,9 +1,8 @@
 // Launch Radar — palette.js: the command palette.
-// Ctrl+K, "/" (when not typing), or the Command button opens it. One list,
-// three kinds of entry: every protocol (jump to its detail), the three
-// views, and the page's actions (CSV, pins, filters, comparison). Matching
-// is a subsequence fuzz over names and slugs; arrows move, Enter opens,
-// Esc closes, and every row is clickable too.
+// Ctrl+K, "/" (when not typing), or the Command button opens it. One list:
+// every protocol (jump to its detail), the three views, and the page's
+// actions (CSV, pins, filters, comparison). Subsequence-fuzz matching over
+// names and slugs; arrows move, Enter opens, Esc closes, rows clickable.
 
 let palItems = [], palAt = 0;
 
@@ -19,7 +18,7 @@ function palActions() {
   ];
 }
 
-/* Subsequence fuzz: q's characters, in order, somewhere in text. The score
+/* Subsequence fuzz: q's characters, in order, somewhere in text; the score
    rewards an early, tight match; -1 is no match. */
 function fuzz(q, text) {
   if (!q) return 0;

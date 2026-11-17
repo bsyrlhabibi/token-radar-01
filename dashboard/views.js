@@ -1,8 +1,5 @@
-// Launch Radar — views.js: the masthead and the market's evidence.
-// The masthead states the snapshot (the footer's provenance line is
-// renderFoot, in app.js). The market view is the model's evidence: the
-// category multiples — compsRows, in detail.js, shared with the detail's
-// Evidence tab — and the live set they were read from.
+// Launch Radar — views.js: the masthead (snapshot, split line) and the
+// market's evidence — compsRows (detail.js) and the live set.
 
 function renderMast() {
   const R = LR.R;
@@ -13,6 +10,7 @@ function renderMast() {
     [String(R.scanned_size), 'protocols scanned'], [String(R.board_size), 'pre-token, ranked'],
     [`${R.watchlist_size}/${R.watchlist_size}`, 'watchlist covered'], [money(totalImplied), 'implied launch value'],
   ].map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
+  $('#split-line').textContent = `${R.board_size} pre-token protocols ranked · ${R.live_peers} live peers priced in the market's evidence`;
 }
 
 function renderMarket() {
