@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launch Radar — the pre-token board</title>
+<link rel="stylesheet" href="./app.css">
+</head>
+<body>
+<div class="scanlines" aria-hidden="true"></div>
+
+<header class="masthead">
+  <div class="scope" aria-hidden="true">
+    <canvas id="sweep" width="132" height="132"></canvas>
+    <div class="scope-ring"></div>
+  </div>
+  <div class="mast-text">
+    <p class="kicker">DEFILLAMA SNAPSHOT · <span id="as-of">—</span> · MODEL <span id="model-version">—</span></p>
+    <h1>LAUNCH<span class="thin">RADAR</span></h1>
+    <p class="standfirst">Every protocol DefiLlama tracks that still has <em>no token</em> — priced against the
+    market capitalisation of the peers that already launched, ranked by what its first day could be worth,
+    each with the farm plan that puts a wallet in line for it.</p>
+  </div>
+  <div class="mast-stats" id="mast-stats"></div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-view="board" class="on">▦ The board</button>
+  <button data-view="market">◈ The market's evidence</button>
+  <button data-view="model">⚙ The model, open</button>
+</nav>
+
+<main>
+  <section id="view-board">
+    <div class="filterbar" id="filterbar">
+      <label class="f-search">⌕ <input id="f-q" type="search" placeholder="Search a protocol…"></label>
+      <label>Category <select id="f-cat"></select></label>
+      <label>Chain <select id="f-chain"></select></label>
+      <label>Size <select id="f-size">
+        <option value="0">Any TVL</option>
+        <option value="1000000000">TVL ≥ $1B</option>
+        <option value="250000000">TVL ≥ $250M</option>
+        <option value="50000000">TVL ≥ $50M</option>
+        <option value="10000000">TVL ≥ $10M</option>
+      </select></label>
+      <div class="f-tier" id="f-tier">
+        <button data-tier="all" class="on">All rows</button>
+        <button data-tier="watchlist">Watchlist</button>
+        <button data-tier="early">Early finds</button>
+      </div>
+      <label>Sort <select id="f-sort">
+        <option value="implied">Implied value</option>
+        <option value="tvl">TVL</option>
+        <option value="growth">7d momentum</option>
+        <option value="age">Age</option>
+      </select></label>
+      <span class="f-count" id="f-count"></span>
+    </div>
+    <p class="sandbox-note" id="sandbox-note" hidden>SANDBOX RANKING — the sliders in <b>The model, open</b> are re-pricing this board. <button id="sandbox-reset">Back to the shipped model</button></p>
+    <div class="tablewrap">
+      <table id="board">
+        <thead><tr>
+          <th class="num">#</th><th>Protocol</th><th>Category</th><th>Chains</th>
+          <th class="num">TVL</th><th>7 days</th><th class="num">Age</th>
+          <th class="num">× TVL</th><th class="num">Implied launch value</th>
+        </tr></thead>
+        <tbody id="board-body"></tbody>
+      </table>
+    </div>
+    <p class="board-foot" id="board-foot"></p>
+  </section>
+
+  <section id="view-detail" hidden></section>
+
+  <section id="view-market" hidden>
+    <div class="cols">
+      <div class="panel">
+        <h2>What a dollar of TVL is worth, by line of work</h2>
+        <p class="lede">Read from the snapshot itself: every protocol whose token already trades, grouped by
+        category. The median is the market's honest middle; the used multiple shrinks it toward the global
+        median in log space, by how many peers stand behind it — a two-peer category barely moves the needle.</p>
+        <table id="comps">
+          <thead><tr><th>Category</th><th class="num">Live peers</th><th class="num">Median ×TVL</th><th class="num">Used ×TVL</th><th></th></tr></thead>
+          <tbody id="comps-body"></tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h2>The live set — already launched, market's own numbers</h2>
+        <p class="lede">The largest tokenised protocols in the snapshot. They are the evidence, never the
+        competition: the board ranks only protocols with no token to price yet.</p>
+        <table id="live">
+          <thead><tr><th>Protocol</th><th>Category</th><th class="num">Market cap</th><th class="num">TVL</th><th class="num">×TVL</th></tr></thead>
+          <tbody id="live-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-model" hidden>
+    <div class="cols">
+      <div class="panel">
+        <h2>The model, stated whole</h2>
+        <p class="formula">implied = TVL × <b>category multiple</b> × <b>momentum</b> × <b>maturity</b> × <b>reach</b></p>
+        <ul class="model-list">
+          <li><b>Category multiple.</b> The median market-cap/TVL of the category's live peers, blended toward the
+          global median in log space with weight n/(n+K), K = <span data-c="shrink_k"></span>, then clamped to
+          [<span data-c="multiple_min"></span>, <span data-c="multiple_max"></span>]. No peers, no problem: the
+          global median stands in.</li>
+          <li><b>Momentum.</b> 7-day TVL change, clamped to ±<span data-c="growth_clamp_pct"></span>%. Gains count at
+          <span data-c="growth_up_weight"></span> weight, losses at <span data-c="growth_down_weight"></span> — a
+          protocol bleeding TVL launches into a colder room than a growing one launches into a warm one.</li>
+          <li><b>Maturity.</b> <span data-c="age_floor"></span> + <span data-c="age_range"></span> × age in days /
+          <span data-c="age_cap_days"></span>. Time on DefiLlama is survival evidence; an unknown age is read as
+          <span data-c="unknown_age_days"></span> days.</li>
+          <li><b>Reach.</b> +<span data-c="chain_step"></span> per chain beyond the first, up to
+          <span data-c="chain_max_extra"></span> extra chains. Distribution is a launch asset.</li>
+          <li><b>Selection.</b> One rule for the whole board: no token recorded, no version marker in the name, not a
+          wrapped, staked or bridged product, not an exchange front. The house watchlist is covered in full, then
+          the board keeps going to the snapshot's $5M edge — the early rows are the point of a radar.</li>
+        </ul>
+        <p class="lede">No protocol is named anywhere in the model. The same function prices Steakhouse and the
+        smallest farm on the board, and the farm plans are written by the same playbook logic from each
+        protocol's own category, chain, size and age.</p>
+      </div>
+      <div class="panel">
+        <h2>The sandbox — break it yourself</h2>
+        <p class="lede">Move a slider and the board re-prices and re-ranks in place, so you can see which
+        conclusions are robust and which hang on one constant.</p>
+        <label class="slider">Shrinkage K — how hard thin categories hug the global median
+          <input id="s-k" type="range" min="0" max="40" step="1"><span id="s-k-v"></span></label>
+        <label class="slider">Momentum weight — how much a week's TVL move is worth
+          <input id="s-g" type="range" min="0" max="2" step="0.1"><span id="s-g-v"></span></label>
+        <label class="slider">Maturity range — how much survival is worth
+          <input id="s-a" type="range" min="0" max="0.6" step="0.05"><span id="s-a-v"></span></label>
+        <button id="s-reset">Reset to the shipped model</button>
+        <div id="sandbox-top"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p id="foot-line"></p>
+  <p class="fine">Implied values are a model's reading of one frozen snapshot, not a promise about any launch.
+  Farm plans are starting points written from public data; a protocol's own page is the only authority on its terms.</p>
+</footer>
+
+<script src="../data.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
