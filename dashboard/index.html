@@ -4,16 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Launch Radar — the pre-token board</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="./app.css">
 </head>
 <body>
-<div class="scanlines" aria-hidden="true"></div>
-
 <header class="masthead">
-  <div class="scope" aria-hidden="true">
-    <canvas id="sweep" width="132" height="132"></canvas>
-    <div class="scope-ring"></div>
-  </div>
+  <div class="scope" aria-hidden="true"><canvas id="sweep" width="132" height="132"></canvas></div>
   <div class="mast-text">
     <p class="kicker">DEFILLAMA SNAPSHOT · <span id="as-of">—</span> · MODEL <span id="model-version">—</span></p>
     <h1>LAUNCH<span class="thin">RADAR</span></h1>
@@ -28,6 +24,7 @@
   <button data-view="board" class="on">▦ The board</button>
   <button data-view="market">◈ The market's evidence</button>
   <button data-view="model">⚙ The model, open</button>
+  <button id="palette-open" class="palette-btn" title="Jump to a protocol, view or action">⌘ Command <span class="kbd">Ctrl K</span></button>
 </nav>
 
 <main>
@@ -36,38 +33,30 @@
       <label class="f-search">⌕ <input id="f-q" type="search" placeholder="Search a protocol…"></label>
       <label>Category <select id="f-cat"></select></label>
       <label>Chain <select id="f-chain"></select></label>
-      <label>Size <select id="f-size">
-        <option value="0">Any TVL</option>
-        <option value="1000000000">TVL ≥ $1B</option>
-        <option value="250000000">TVL ≥ $250M</option>
-        <option value="50000000">TVL ≥ $50M</option>
-        <option value="10000000">TVL ≥ $10M</option>
-      </select></label>
+      <label>Size <select id="f-size"></select></label>
       <div class="f-tier" id="f-tier">
         <button data-tier="all" class="on">All rows</button>
         <button data-tier="watchlist">Watchlist</button>
         <button data-tier="early">Early finds</button>
       </div>
-      <label>Sort <select id="f-sort">
-        <option value="implied">Implied value</option>
-        <option value="tvl">TVL</option>
-        <option value="growth">7d momentum</option>
-        <option value="age">Age</option>
+      <label>Sort <select id="f-sort"></select></label>
+      <label>Dir <select id="f-dir">
+        <option value="desc">High → low</option>
+        <option value="asc">Low → high</option>
       </select></label>
-      <span class="f-count" id="f-count"></span>
+      <button id="csv-btn" class="toolbtn" title="Download the rows now on the board, as CSV">⇩ CSV</button>
+      <button id="pins-clear" class="toolbtn" title="Unpin every protocol" hidden>Unpin all</button>
     </div>
+    <div class="chipsrow" id="chips"></div>
     <p class="sandbox-note" id="sandbox-note" hidden>SANDBOX RANKING — the sliders in <b>The model, open</b> are re-pricing this board. <button id="sandbox-reset">Back to the shipped model</button></p>
     <div class="tablewrap">
       <table id="board">
-        <thead><tr>
-          <th class="num">#</th><th>Protocol</th><th>Category</th><th>Chains</th>
-          <th class="num">TVL</th><th>7 days</th><th class="num">Age</th>
-          <th class="num">× TVL</th><th class="num">Implied launch value</th>
-        </tr></thead>
+        <thead><tr id="board-head"></tr></thead>
         <tbody id="board-body"></tbody>
       </table>
     </div>
     <p class="board-foot" id="board-foot"></p>
+    <p class="shortcuts">KEYS — <span class="kbd">Ctrl K</span> or <span class="kbd">/</span> command palette · <span class="kbd">B</span> board · <span class="kbd">M</span> market evidence · <span class="kbd">P</span> the model · <span class="kbd">Esc</span> closes overlays</p>
   </section>
 
   <section id="view-detail" hidden></section>
@@ -76,9 +65,9 @@
     <div class="cols">
       <div class="panel">
         <h2>What a dollar of TVL is worth, by line of work</h2>
-        <p class="lede">Read from the snapshot itself: every protocol whose token already trades, grouped by
-        category. The median is the market's honest middle; the used multiple shrinks it toward the global
-        median in log space, by how many peers stand behind it — a two-peer category barely moves the needle.</p>
+        <p class="lede">Read from the snapshot itself: every protocol whose token already trades, grouped by category.
+        The median is the market's honest middle; the used multiple shrinks it toward the global median in log
+        space, by how many peers stand behind it.</p>
         <table id="comps">
           <thead><tr><th>Category</th><th class="num">Live peers</th><th class="num">Median ×TVL</th><th class="num">Used ×TVL</th><th></th></tr></thead>
           <tbody id="comps-body"></tbody>
@@ -86,8 +75,8 @@
       </div>
       <div class="panel">
         <h2>The live set — already launched, market's own numbers</h2>
-        <p class="lede">The largest tokenised protocols in the snapshot. They are the evidence, never the
-        competition: the board ranks only protocols with no token to price yet.</p>
+        <p class="lede">The largest tokenised protocols in the snapshot: the evidence, never the competition —
+        the board ranks only protocols with no token to price yet.</p>
         <table id="live">
           <thead><tr><th>Protocol</th><th>Category</th><th class="num">Market cap</th><th class="num">TVL</th><th class="num">×TVL</th></tr></thead>
           <tbody id="live-body"></tbody>
@@ -103,29 +92,28 @@
         <p class="formula">implied = TVL × <b>category multiple</b> × <b>momentum</b> × <b>maturity</b> × <b>reach</b></p>
         <ul class="model-list">
           <li><b>Category multiple.</b> The median market-cap/TVL of the category's live peers, blended toward the
-          global median in log space with weight n/(n+K), K = <span data-c="shrink_k"></span>, then clamped to
-          [<span data-c="multiple_min"></span>, <span data-c="multiple_max"></span>]. No peers, no problem: the
-          global median stands in.</li>
+          global median in log space with weight n/(n+K), K = <span data-c="shrink_k"></span>, clamped to
+          [<span data-c="multiple_min"></span>, <span data-c="multiple_max"></span>]. No peers: the global median stands in.</li>
           <li><b>Momentum.</b> 7-day TVL change, clamped to ±<span data-c="growth_clamp_pct"></span>%. Gains count at
-          <span data-c="growth_up_weight"></span> weight, losses at <span data-c="growth_down_weight"></span> — a
-          protocol bleeding TVL launches into a colder room than a growing one launches into a warm one.</li>
+          <span data-c="growth_up_weight"></span> weight, losses at <span data-c="growth_down_weight"></span> — money
+          leaving is harder to argue with than money arriving.</li>
           <li><b>Maturity.</b> <span data-c="age_floor"></span> + <span data-c="age_range"></span> × age in days /
-          <span data-c="age_cap_days"></span>. Time on DefiLlama is survival evidence; an unknown age is read as
+          <span data-c="age_cap_days"></span>. Time on DefiLlama is survival evidence; an unknown age reads as
           <span data-c="unknown_age_days"></span> days.</li>
           <li><b>Reach.</b> +<span data-c="chain_step"></span> per chain beyond the first, up to
-          <span data-c="chain_max_extra"></span> extra chains. Distribution is a launch asset.</li>
+          <span data-c="chain_max_extra"></span> extra. Distribution is a launch asset.</li>
           <li><b>Selection.</b> One rule for the whole board: no token recorded, no version marker in the name, not a
           wrapped, staked or bridged product, not an exchange front. The house watchlist is covered in full, then
-          the board keeps going to the snapshot's $5M edge — the early rows are the point of a radar.</li>
+          the board keeps going to the snapshot's $5M edge.</li>
         </ul>
-        <p class="lede">No protocol is named anywhere in the model. The same function prices Steakhouse and the
-        smallest farm on the board, and the farm plans are written by the same playbook logic from each
-        protocol's own category, chain, size and age.</p>
+        <p class="lede">No protocol is named anywhere in the model: the same function prices Steakhouse and the
+        smallest farm on the board, and every farm plan is written by the same playbook logic from the protocol's
+        own category, chain, size and age.</p>
       </div>
       <div class="panel">
         <h2>The sandbox — break it yourself</h2>
-        <p class="lede">Move a slider and the board re-prices and re-ranks in place, so you can see which
-        conclusions are robust and which hang on one constant.</p>
+        <p class="lede">Move a slider and the board re-prices and re-ranks in place — see which conclusions are
+        robust and which hang on one constant.</p>
         <label class="slider">Shrinkage K — how hard thin categories hug the global median
           <input id="s-k" type="range" min="0" max="40" step="1"><span id="s-k-v"></span></label>
         <label class="slider">Momentum weight — how much a week's TVL move is worth
@@ -142,10 +130,29 @@
 <footer>
   <p id="foot-line"></p>
   <p class="fine">Implied values are a model's reading of one frozen snapshot, not a promise about any launch.
-  Farm plans are starting points written from public data; a protocol's own page is the only authority on its terms.</p>
+  Farm plans are starting points written from public data; a protocol's own page is the only authority on its terms.
+  Every view has a deep link — <span class="kbd">#/board</span>, <span class="kbd">#/detail/&lt;slug&gt;</span>,
+  <span class="kbd">#/market</span>, <span class="kbd">#/model</span> — and the board's state rides along in it.</p>
 </footer>
 
+<div id="compare-tray" hidden></div>
+<div id="compare-panel" hidden></div>
+<div id="palette" hidden>
+  <div class="pal-box">
+    <input id="pal-q" type="text" placeholder="Jump to a protocol, a view, or an action…" autocomplete="off">
+    <div id="pal-list"></div>
+    <p class="pal-hint">↑↓ move · ↵ open · esc close</p>
+  </div>
+</div>
+
 <script src="../data.js"></script>
+<script src="./data.js"></script>
+<script src="./board.js"></script>
+<script src="./detail.js"></script>
+<script src="./compare.js"></script>
+<script src="./palette.js"></script>
+<script src="./views.js"></script>
+<script src="./visuals.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>
